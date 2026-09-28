@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pizarra de video · Dos videos</title>
+<title>Pizarra de video · Dos videos v4</title>
 <meta name="description" content="Reproducí videos de natación en cámara lenta, pausá cuadro a cuadro y marcá posiciones con lápiz, líneas, flechas y ángulos para capacitaciones.">
 <style>
   :root{
@@ -105,8 +105,9 @@
       </div>
       <div class="row end" style="margin-top:8px">
         <div class="w90"><label>Desfase video 2 (s)</label><input type="number" id="offB" step="0.01" value="0"></div>
-        <button id="bB-1">Video 2 ◀ 1f</button><button id="bB+1">Video 2 1f ▶</button>
-        <span class="muted">Ajustá el desfase para que ambos videos empiecen juntos (ej. en el sonido de salida).</span>
+        <span class="muted">Mover solo arriba:</span><button id="bA-1">▲ Video 1 ◀ 1f</button><button id="bA+1">▲ Video 1 1f ▶</button>
+        <span class="muted">Mover solo abajo:</span><button id="bB-1">▼ Video 2 ◀ 1f</button><button id="bB+1">▼ Video 2 1f ▶</button>
+        <span class="muted" style="flex-basis:100%">Play y los botones grandes mueven los dos juntos. Estos botones mueven un solo video para alinearlos (ej. en el sonido de salida).</span>
         <div class="w90">
           <label>FPS</label>
           <input type="number" id="fps" min="1" value="30">
@@ -513,6 +514,8 @@ $("file2").addEventListener("change",e=>{
 });
 $("offB").addEventListener("input",e=>{offB=Number(e.target.value)||0;video.pause();video.currentTime=video.currentTime;});
 function stepB(f){video.pause();offB=Math.round((offB+f/fps)*1000)/1000;$("offB").value=offB.toFixed(3);video.currentTime=video.currentTime;}
+function stepA(f){video.pause();const t=Math.max(0,Math.min(VA.duration||0,VA.currentTime+f/fps));offB=Math.round((offB-(t-VA.currentTime))*1000)/1000;$("offB").value=offB.toFixed(3);VA.currentTime=t;time=t;updateTimeUI();renderOverlay();}
+$("bA-1").addEventListener("click",()=>stepA(-1));$("bA+1").addEventListener("click",()=>stepA(1));
 $("bB-1").addEventListener("click",()=>stepB(-1));$("bB+1").addEventListener("click",()=>stepB(1));
 $("seekbar").addEventListener("input",e=>{video.pause();seek(Number(e.target.value));});
 $("b-play").addEventListener("click",toggle);
