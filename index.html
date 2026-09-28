@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pizarra de video · Capacitación en natación</title>
+<title>Pizarra de video · Dos videos</title>
 <meta name="description" content="Reproducí videos de natación en cámara lenta, pausá cuadro a cuadro y marcá posiciones con lápiz, líneas, flechas y ángulos para capacitaciones.">
 <style>
   :root{
@@ -20,7 +20,8 @@
   .layout{display:grid;gap:16px;grid-template-columns:1fr}
   @media(min-width:1024px){.layout{grid-template-columns:minmax(0,1fr) 320px}}
   .stage{position:relative;overflow:hidden;border-radius:12px;border:1px solid var(--border);background:#000}
-  video{display:block;width:100%;max-height:62vh;background:#000}
+  video.src{display:none}
+  #vcanvas{display:block;width:100%;max-height:82vh;object-fit:contain;background:#000}
   .stage svg{position:absolute;touch-action:none}
   .stage svg.draw{cursor:crosshair}
   .stage svg.nodraw{pointer-events:none}
@@ -69,7 +70,7 @@
   <div class="layout">
     <div>
       <div class="stage" id="stage">
-        <video id="video" playsinline></video>
+        <canvas id="vcanvas" width="1280" height="1440"></canvas><video id="va" class="src" playsinline muted></video><video id="vb" class="src" playsinline muted></video>
         <svg id="overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none" class="draw"></svg>
         <div class="timechip" id="timechip" hidden>0.00 s</div>
         <div class="empty" id="empty">Cargá un video (queda en el dispositivo, no se sube a ningún servidor)</div>
@@ -94,9 +95,18 @@
 
       <div class="row end" style="margin-top:12px">
         <div class="grow">
-          <label>Archivo de video</label>
+          <label>Video 1 (arriba)</label>
           <input type="file" id="file" accept="video/*">
         </div>
+        <div class="grow">
+          <label>Video 2 (abajo)</label>
+          <input type="file" id="file2" accept="video/*">
+        </div>
+      </div>
+      <div class="row end" style="margin-top:8px">
+        <div class="w90"><label>Desfase video 2 (s)</label><input type="number" id="offB" step="0.01" value="0"></div>
+        <button id="bB-1">Video 2 ◀ 1f</button><button id="bB+1">Video 2 1f ▶</button>
+        <span class="muted">Ajustá el desfase para que ambos videos empiecen juntos (ej. en el sonido de salida).</span>
         <div class="w90">
           <label>FPS</label>
           <input type="number" id="fps" min="1" value="30">
@@ -223,7 +233,47 @@ function markLabelBox(mark){
 
 // ---------- estado ----------
 const $=id=>document.getElementById(id);
-const video=$("video"),overlay=$("overlay"),stage=$("stage");
+
+// ---------- dos videos en un solo lienzo ----------
+const VA=document.getElementById("va"),VB=document.getElementById("vb"),VC=document.getElementById("vcanvas"),VCX=VC.getContext("2d");
+let offB=0;
+const has=v=>!!v.getAttribute("src")&&v.videoWidth>0;
+const master=()=>has(VA)||!has(VB)?VA:VB;
+function layout(){
+  const W=1280;
+  const h=v=>has(v)?Math.round(W*v.videoHeight/v.videoWidth/2)*2:720;
+  return{W,ha:h(VA),hb:h(VB)};
+}
+function paint(){
+  const L=layout();
+  if(VC.width!==L.W||VC.height!==L.ha+L.hb){VC.width=L.W;VC.height=L.ha+L.hb;measure();}
+  VCX.fillStyle="#000";VCX.fillRect(0,0,VC.width,VC.height);
+  VCX.fillStyle="#666";VCX.font="600 36px system-ui";VCX.textAlign="center";
+  if(has(VA))VCX.drawImage(VA,0,0,L.W,L.ha);else VCX.fillText("Cargá el video 1",L.W/2,L.ha/2);
+  if(has(VB))VCX.drawImage(VB,0,L.ha,L.W,L.hb);else VCX.fillText("Cargá el video 2",L.W/2,L.ha+L.hb/2);
+  VCX.fillStyle="#fff";VCX.fillRect(0,L.ha-2,L.W,4);VCX.textAlign="left";
+  if(has(VA)&&has(VB)&&!VA.paused){const want=VA.currentTime+offB;if(Math.abs(VB.currentTime-want)>0.12&&want>=0&&want<=VB.duration)VB.currentTime=want;}
+  requestAnimationFrame(paint);
+}
+const bus=new EventTarget();
+["timeupdate","play","pause","seeked","error","ended"].forEach(ev=>[VA,VB].forEach(v=>v.addEventListener(ev,()=>{if(v===master())bus.dispatchEvent(new Event(ev));})));
+[VA,VB].forEach(v=>v.addEventListener("loadedmetadata",()=>{measure();bus.dispatchEvent(new Event("loadedmetadata"));}));
+const video={
+  get videoWidth(){return has(VA)||has(VB)?VC.width:0},
+  get videoHeight(){return has(VA)||has(VB)?VC.height:0},
+  get clientWidth(){return VC.clientWidth},get clientHeight(){return VC.clientHeight},
+  get duration(){const m=master();return m.duration||0},
+  get currentTime(){return master().currentTime},
+  set currentTime(t){if(has(VA)){VA.currentTime=t;if(has(VB))VB.currentTime=Math.max(0,Math.min(VB.duration,t+offB));}else if(has(VB))VB.currentTime=t;},
+  get paused(){return master().paused},get ended(){return master().ended},
+  set playbackRate(r){VA.playbackRate=r;VB.playbackRate=r},get playbackRate(){return master().playbackRate},
+  play(){const ps=[VA,VB].filter(has).map(v=>v.play());return Promise.all(ps);},
+  pause(){VA.pause();VB.pause();},
+  addEventListener(ev,fn){if(ev==="click")VC.addEventListener(ev,fn);else bus.addEventListener(ev,fn);},
+  removeEventListener(ev,fn){if(ev==="click")VC.removeEventListener(ev,fn);else bus.removeEventListener(ev,fn);}
+};
+requestAnimationFrame(paint);
+const overlay=$("overlay"),stage=$("stage");
 let src=null,duration=0,time=0,playing=false,rate=0.5,fps=30;
 let tool="libre",color=COLORS[0][1],width=6,drawMode=true;
 let draft=[],marks=[],texto="",dur=3,congelar=true;
@@ -240,7 +290,7 @@ function measure(){
   overlay.style.left=box.left+"px";overlay.style.top=box.top+"px";
   overlay.style.width=box.width+"px";overlay.style.height=box.height+"px";
 }
-new ResizeObserver(measure).observe(video);
+new ResizeObserver(measure).observe(VC);
 window.addEventListener("resize",measure);
 
 // ---------- render del overlay ----------
@@ -446,13 +496,24 @@ $("file").addEventListener("change",e=>{
   if(!f)return;
   if(src)URL.revokeObjectURL(src);
   src=URL.createObjectURL(f);
-  video.src=src;
+  VA.src=src;
   showErr(null);time=0;draft=[];marks=[];ocultas=new Set();
   $("empty").hidden=true;$("timechip").hidden=false;
   ["b-shot","b-ini","b-fin","b-exp-tramo","b-exp-full"].forEach(id=>$(id).disabled=false);
   renderMarkList();renderOverlay();
 });
 
+$("file2").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  if(VB.src)URL.revokeObjectURL(VB.src);
+  VB.src=URL.createObjectURL(f);VB.addEventListener("loadedmetadata",()=>{video.currentTime=video.currentTime;},{once:true});
+  showErr(null);$("empty").hidden=true;$("timechip").hidden=false;
+  ["b-shot","b-ini","b-fin","b-exp-tramo","b-exp-full"].forEach(id=>$(id).disabled=false);
+  renderOverlay();
+});
+$("offB").addEventListener("input",e=>{offB=Number(e.target.value)||0;video.pause();video.currentTime=video.currentTime;});
+function stepB(f){video.pause();offB=Math.round((offB+f/fps)*1000)/1000;$("offB").value=offB.toFixed(3);video.currentTime=video.currentTime;}
+$("bB-1").addEventListener("click",()=>stepB(-1));$("bB+1").addEventListener("click",()=>stepB(1));
 $("seekbar").addEventListener("input",e=>{video.pause();seek(Number(e.target.value));});
 $("b-play").addEventListener("click",toggle);
 $("b-10").addEventListener("click",()=>step(-10));
@@ -583,7 +644,7 @@ $("b-shot").addEventListener("click",()=>{
   const c=document.createElement("canvas");
   c.width=video.videoWidth;c.height=video.videoHeight;
   const ctx=c.getContext("2d");
-  ctx.drawImage(video,0,0,c.width,c.height);
+  ctx.drawImage(VC,0,0,c.width,c.height);
   const vis=activeMarksAt(time).filter(m=>!ocultas.has(m.id));
   drawOverlay(ctx,c.width,c.height,[...vis.flatMap(m=>m.shapes),...draft],vis);
   c.toBlob(b=>{
@@ -635,7 +696,7 @@ async function exportar(desde,hasta){
   const draw=()=>{
     ctx.clearRect(0,0,c.width,c.height);
     ctx.fillStyle="#000";ctx.fillRect(0,0,c.width,c.height);
-    ctx.drawImage(video,0,0,c.width,c.height);
+    ctx.drawImage(VC,0,0,c.width,c.height);
     const vis=activeMarksAt(video.currentTime);
     drawOverlay(ctx,c.width,c.height,vis.flatMap(m=>m.shapes),vis);
     const label=fmt(video.currentTime-ini,2)+" s";
